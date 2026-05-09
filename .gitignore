@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+smart-contracts/lib/
+
+# Build output
+frontend/dist/
+frontend/dist-ssr/
+smart-contracts/out/
+
+# Foundry artifacts
+smart-contracts/cache/
+smart-contracts/broadcast/
+smart-contracts/foundry.lock
+
+# Env files
+.env
+.env.local
+smart-contracts/.env
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
