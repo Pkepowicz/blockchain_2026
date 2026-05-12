@@ -13,19 +13,23 @@ contract ForceResolve is Script {
 
         PredictionMarket market = PredictionMarket(marketAddr);
 
-        PredictionMarket.Market memory m = market.getMarket(0);
-        uint256 endTime = m.endTime;
-        console.log("Market 0 end time:", endTime);
+        uint256 marketCount = market.nextMarketId();
         console.log("Current time:", block.timestamp);
+        console.log("Markets to resolve:", marketCount);
 
         vm.startBroadcast(deployerPk);
-        market.resolveMarket(0);
-        vm.stopBroadcast();
+        for (uint256 marketId = 0; marketId < marketCount; marketId++) {
+            PredictionMarket.Market memory currentMarket = market.getMarket(marketId);
+            console.log("Resolving market:", marketId);
+            console.log("End time:", currentMarket.endTime);
+            market.resolveMarket(marketId);
 
-        PredictionMarket.Market memory resolved = market.getMarket(0);
-        console.log("Resolved:", resolved.resolved);
-        console.log("Yes wins:", resolved.yesWins ? "true" : "false");
-        console.log("Yes pool:", resolved.totalYesPool);
-        console.log("No pool:", resolved.totalNoPool);
+            PredictionMarket.Market memory resolved = market.getMarket(marketId);
+            console.log("Resolved:", resolved.resolved);
+            console.log("Yes wins:", resolved.yesWins ? "true" : "false");
+            console.log("Yes pool:", resolved.totalYesPool);
+            console.log("No pool:", resolved.totalNoPool);
+        }
+        vm.stopBroadcast();
     }
 }

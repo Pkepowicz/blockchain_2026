@@ -51,7 +51,7 @@ contract PredictionMarket is Ownable {
         uint256 amount
     );
 
-    constructor(address _token) {
+    constructor(address _token) Ownable(msg.sender) {
         token = IBettingToken(_token);
     }
 

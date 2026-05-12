@@ -16,8 +16,10 @@ contract DeployAnvil is Script {
         MockV3Aggregator aggregator = new MockV3Aggregator(18, 50_000e18);
         PredictionMarket market = new PredictionMarket(address(token));
 
-        // Strike = 45,000, live price = 50,000 => YES wins
+        // Seed a few markets so the UI is ready immediately after deploy.
         market.createMarket(address(aggregator), 45_000e18, 5 minutes);
+        market.createMarket(address(aggregator), 52_000e18, 10 minutes);
+        market.createMarket(address(aggregator), 50_500e18, 15 minutes);
 
         // Mint tokens to deployer
         token.mint();
@@ -29,6 +31,9 @@ contract DeployAnvil is Script {
         console.log("BettingToken:", address(token));
         console.log("MockV3Aggregator:", address(aggregator));
         console.log("PredictionMarket:", address(market));
-        console.log("Live price: 50,000 | Strike: 45,000 => YES wins");
+        console.log("Seeded markets:");
+        console.log("  #0: strike 45,000 | end 5 min");
+        console.log("  #1: strike 52,000 | end 10 min");
+        console.log("  #2: strike 50,500 | end 15 min");
     }
 }
