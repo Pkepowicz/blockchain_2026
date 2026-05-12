@@ -14,14 +14,30 @@ interface Market {
   totalNoPool: bigint;
 }
 
-export default function MarketDashboard() {
+type MarketDashboardProps = {
+  selectedMarketId: number | null;
+  onSelectMarket: (marketId: number | null) => void;
+  refreshKey?: number;
+  disabled?: boolean;
+};
+
+export default function MarketDashboard({
+  selectedMarketId,
+  onSelectMarket,
+  refreshKey,
+  disabled = false,
+}: MarketDashboardProps) {
   const { predictionMarket } = useWeb3();
   const [markets, setMarkets] = useState<Market[]>([]);
+  const [filterText, setFilterText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const fetchMarkets = async () => {
+  const fetchMarkets = async (isInitial = false) => {
     if (!predictionMarket) return;
-    setLoading(true);
+    if (isInitial && !hasLoaded) {
+      setLoading(true);
+    }
     try {
       const count = await predictionMarket.nextMarketId();
       const fetched: Market[] = [];
@@ -42,15 +58,16 @@ export default function MarketDashboard() {
     } catch (error) {
       console.error('Failed to fetch markets:', error);
     } finally {
-      setLoading(false);
+      if (isInitial && !hasLoaded) {
+        setLoading(false);
+        setHasLoaded(true);
+      }
     }
   };
 
   useEffect(() => {
-    fetchMarkets();
-    const interval = setInterval(fetchMarkets, 10000);
-    return () => clearInterval(interval);
-  }, [predictionMarket]);
+    fetchMarkets(true);
+  }, [predictionMarket, refreshKey]);
 
   const formatPrice = (price: bigint) => {
     return (Number(ethers.formatEther(price))).toFixed(2);
@@ -70,6 +87,20 @@ export default function MarketDashboard() {
     return `${hours}h ${mins}m`;
   };
 
+  const describeMarket = (market: Market) => {
+    const state = market.resolved ? (market.yesWins ? 'YES resolved' : 'NO resolved') : timeRemaining(market.endTime);
+    return `#${market.id} | ${state} | strike $${formatPrice(market.strikePrice)}`;
+  };
+
+  const visibleMarkets = markets.filter((market) => {
+    if (!filterText.trim()) return true;
+    const query = filterText.toLowerCase();
+    return (
+      `#${market.id}`.includes(query) ||
+      describeMarket(market).toLowerCase().includes(query)
+    );
+  });
+
   if (loading) return <div className="loading">Loading markets...</div>;
 
   return (
@@ -79,8 +110,47 @@ export default function MarketDashboard() {
         <p>No markets available</p>
       ) : (
         <div className="market-list">
-          {markets.map((market) => (
-            <div key={market.id} className={`market-item ${market.resolved ? 'resolved' : ''}`}>
+          <div className="market-picker market-picker-inline">
+            <div className="market-picker-header">
+              <div>
+                <h3>Choose market</h3>
+                <p>Filter the list below by id, status, or strike price.</p>
+              </div>
+              <button
+                type="button"
+                className="clear-selection-btn"
+                onClick={() => onSelectMarket(null)}
+                disabled={selectedMarketId === null || disabled}
+              >
+                Clear
+              </button>
+            </div>
+
+            <input
+              type="text"
+              className="market-filter"
+              placeholder="Type a market id, status, or strike price..."
+              value={filterText}
+              onChange={(e) => setFilterText(e.target.value)}
+              disabled={disabled}
+            />
+              <p className="selected-market-empty">
+                {selectedMarketId !== null
+                  ? `Selected market #${selectedMarketId} is shown in the betting panel below.`
+                  : 'Pick a market to start betting.'}
+              </p>
+          </div>
+
+          {visibleMarkets.length === 0 ? (
+            <p className="selected-market-empty">No markets match your search.</p>
+          ) : visibleMarkets.map((market) => (
+            <button
+              key={market.id}
+              type="button"
+              className={`market-item ${market.resolved ? 'resolved' : ''} ${selectedMarketId === market.id ? 'active' : ''}`}
+              onClick={() => onSelectMarket(market.id)}
+              disabled={disabled}
+            >
               <div className="market-header">
                 <span className="market-id">Market #{market.id}</span>
                 {market.resolved ? (
@@ -113,7 +183,7 @@ export default function MarketDashboard() {
                   <span>{formatPrice(market.totalNoPool)} BETT</span>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
