@@ -3,9 +3,11 @@
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+FRONTEND_ROOT="$PROJECT_ROOT/../frontend"
 RPC_URL="http://127.0.0.1:8545"
 PK="0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 ENV_FILE="$PROJECT_ROOT/.env"
+FRONTEND_ENV_FILE="$FRONTEND_ROOT/.env"
 
 echo "Deploying contracts..."
 OUTPUT=$(cd "$PROJECT_ROOT" && forge script script/DeployAnvil.s.sol:DeployAnvil \
@@ -30,7 +32,20 @@ BETTING_TOKEN_ADDRESS=$TOKEN_ADDR
 PREDICTION_MARKET_ADDRESS=$MARKET_ADDR
 EOF
 
+# Write frontend env so the UI always uses the latest deployed addresses
+cat > "$FRONTEND_ENV_FILE" <<EOF
+VITE_RPC_URL=$RPC_URL
+VITE_CHAIN_ID=31337
+VITE_CHAIN_NAME=Anvil
+VITE_BETTING_TOKEN_ADDRESS=$TOKEN_ADDR
+VITE_PREDICTION_MARKET_ADDRESS=$MARKET_ADDR
+EOF
+
 echo ""
 echo "Addresses saved to $ENV_FILE"
 echo "  BETTING_TOKEN_ADDRESS=$TOKEN_ADDR"
 echo "  PREDICTION_MARKET_ADDRESS=$MARKET_ADDR"
+echo ""
+echo "Frontend env saved to $FRONTEND_ENV_FILE"
+echo "  VITE_BETTING_TOKEN_ADDRESS=$TOKEN_ADDR"
+echo "  VITE_PREDICTION_MARKET_ADDRESS=$MARKET_ADDR"

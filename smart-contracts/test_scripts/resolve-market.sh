@@ -15,9 +15,9 @@ else
   exit 1
 fi
 
-# 1. Fast-forward Anvil time by 5 minutes (300 seconds)
+# 1. Fast-forward Anvil time so all seeded markets can resolve.
 echo "Warping Anvil time..."
-cast rpc evm_increaseTime 300 --rpc-url "$RPC_URL"
+cast rpc evm_increaseTime 900 --rpc-url "$RPC_URL"
 
 # 2. Mine a new block to solidify the timestamp change
 cast rpc evm_mine --rpc-url "$RPC_URL"
