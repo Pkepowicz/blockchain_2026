@@ -1,5 +1,5 @@
 import { useContext } from 'react';
-import { Web3Context } from '../context/web3Context';
+import { Web3Context } from '../context/Web3Context';
 
 export function useWeb3() {
   const context = useContext(Web3Context);

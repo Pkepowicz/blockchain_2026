@@ -1,12 +1,25 @@
-import { useState, useCallback } from 'react';
+import { createContext, useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ethers } from 'ethers';
 import BettingTokenABI from '../abi/BettingToken.json';
 import PredictionMarketABI from '../abi/PredictionMarket.json';
 import { config } from '../config';
-import { Web3Context } from './web3Context';
 
-export function Web3Provider({ children }: { children: ReactNode }) {
+export type Web3ContextType = {
+  provider: ethers.BrowserProvider | null;
+  signer: ethers.Signer | null;
+  address: string | null;
+  chainId: number | null;
+  connectWallet: () => Promise<void>;
+  disconnectWallet: () => void;
+  bettingToken: ethers.Contract | null;
+  predictionMarket: ethers.Contract | null;
+  isWalletConnected: boolean;
+};
+
+export const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+
+export function Web3Provider({ children }: { children: ReactNode }): ReactNode {
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
   const [signer, setSigner] = useState<ethers.Signer | null>(null);
   const [address, setAddress] = useState<string | null>(null);
@@ -80,17 +93,8 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       const tokenAddress = ethers.getAddress(config.bettingTokenAddress);
       const marketAddress = ethers.getAddress(config.predictionMarketAddress);
 
-      const tokenContract = new ethers.Contract(
-        tokenAddress,
-        BettingTokenABI,
-        signerInstance
-      );
-
-      const marketContract = new ethers.Contract(
-        marketAddress,
-        PredictionMarketABI,
-        signerInstance
-      );
+      const tokenContract = new ethers.Contract(tokenAddress, BettingTokenABI, signerInstance);
+      const marketContract = new ethers.Contract(marketAddress, PredictionMarketABI, signerInstance);
 
       setBettingToken(tokenContract);
       setPredictionMarket(marketContract);
