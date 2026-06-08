@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Standard fetch-on-mount pattern across Web3 components
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3 } from '../hooks/useWeb3';
 
 type TokenFaucetProps = {
   refreshKey?: number;

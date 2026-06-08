@@ -1,4 +1,4 @@
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3 } from '../hooks/useWeb3';
 import { config } from '../config';
 
 export default function Header() {

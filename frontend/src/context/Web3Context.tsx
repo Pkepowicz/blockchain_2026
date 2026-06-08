@@ -1,23 +1,10 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { ethers } from 'ethers';
 import BettingTokenABI from '../abi/BettingToken.json';
 import PredictionMarketABI from '../abi/PredictionMarket.json';
 import { config } from '../config';
-
-type Web3ContextType = {
-  provider: ethers.BrowserProvider | null;
-  signer: ethers.Signer | null;
-  address: string | null;
-  chainId: number | null;
-  connectWallet: () => Promise<void>;
-  disconnectWallet: () => void;
-  bettingToken: ethers.Contract | null;
-  predictionMarket: ethers.Contract | null;
-  isWalletConnected: boolean;
-};
-
-const Web3Context = createContext<Web3ContextType | undefined>(undefined);
+import { Web3Context } from './web3Context';
 
 export function Web3Provider({ children }: { children: ReactNode }) {
   const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
@@ -36,6 +23,30 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     setPredictionMarket(null);
   }, []);
 
+  const ensureCorrectChain = async () => {
+    const hexChainId = `0x${config.chainId.toString(16)}`;
+
+    try {
+      await window.ethereum!.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: hexChainId }],
+      });
+    } catch (switchError: unknown) {
+      const error = switchError as { code?: number };
+      if (error.code !== 4902) throw switchError;
+
+      await window.ethereum!.request({
+        method: 'wallet_addEthereumChain',
+        params: [{
+          chainId: hexChainId,
+          chainName: config.chainName,
+          rpcUrls: [config.rpcUrl],
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+        }],
+      });
+    }
+  };
+
   const connectWallet = useCallback(async () => {
     if (!window.ethereum) {
       alert('Please install MetaMask');
@@ -43,17 +54,28 @@ export function Web3Provider({ children }: { children: ReactNode }) {
     }
 
     try {
+      await ensureCorrectChain();
+
       const ethProvider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await ethProvider.send('eth_requestAccounts', []);
       const network = await ethProvider.getNetwork();
+      const currentChainId = Number(network.chainId);
+
+      if (currentChainId !== config.chainId) {
+        throw new Error(
+          `Wrong network: MetaMask is on chain ${currentChainId}, expected ${config.chainId}. ` +
+          'Use RPC http://127.0.0.1:8545 and restart the fork with start-fork.sh.'
+        );
+      }
+
       const signerInstance = await ethProvider.getSigner();
 
-      console.log('Connected to chain:', Number(network.chainId), '(expected:', config.chainId, ')');
+      console.log('Connected to chain:', currentChainId, '(expected:', config.chainId, ')');
 
       setProvider(ethProvider);
       setSigner(signerInstance);
       setAddress(accounts[0]);
-      setChainId(Number(network.chainId));
+      setChainId(currentChainId);
 
       const tokenAddress = ethers.getAddress(config.bettingTokenAddress);
       const marketAddress = ethers.getAddress(config.predictionMarketAddress);
@@ -73,12 +95,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       setBettingToken(tokenContract);
       setPredictionMarket(marketContract);
 
-      // Set up event listeners after successful connection
-      window.ethereum.on('accountsChanged', (accounts: string[]) => {
-        if ((accounts as string[]).length === 0) {
+      window.ethereum.on('accountsChanged', (...args: unknown[]) => {
+        const nextAccounts = args[0] as string[];
+        if (nextAccounts.length === 0) {
           disconnectWallet();
         } else {
-          setAddress((accounts as string[])[0]);
+          setAddress(nextAccounts[0]);
         }
       });
 
@@ -87,9 +109,10 @@ export function Web3Provider({ children }: { children: ReactNode }) {
       });
     } catch (error) {
       console.error('Failed to connect wallet:', error);
-      alert('Failed to connect wallet. Check browser console for details.');
+      const message = error instanceof Error ? error.message : 'Failed to connect wallet.';
+      alert(message);
     }
-  }, [config.bettingTokenAddress, config.predictionMarketAddress, config.chainId, disconnectWallet]);
+  }, [disconnectWallet]);
 
   return (
     <Web3Context.Provider
@@ -110,20 +133,12 @@ export function Web3Provider({ children }: { children: ReactNode }) {
   );
 }
 
-export function useWeb3() {
-  const context = useContext(Web3Context);
-  if (context === undefined) {
-    throw new Error('useWeb3 must be used within a Web3Provider');
-  }
-  return context;
-}
-
 declare global {
   interface Window {
     ethereum?: {
       request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-      on: (event: string, handler: (...args: any[]) => void) => void;
-      removeListener: (event: string, handler: (...args: any[]) => void) => void;
+      on: (event: string, handler: (...args: unknown[]) => void) => void;
+      removeListener: (event: string, handler: (...args: unknown[]) => void) => void;
     };
   }
 }

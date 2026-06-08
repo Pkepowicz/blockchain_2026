@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Web3Provider } from './context/Web3Context';
 import Header from './components/Header';
 import MarketDashboard from './components/MarketDashboard';
@@ -12,9 +12,9 @@ function AppContent() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isBetProcessing, setIsBetProcessing] = useState(false);
 
-  const handleBetPlaced = () => {
+  const handleBetPlaced = useCallback(() => {
     setRefreshKey((k) => k + 1);
-  };
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -44,6 +44,7 @@ function AppContent() {
               selectedMarketId={selectedMarket}
               disabled={isBetProcessing}
               onSelectMarket={(marketId) => setSelectedMarket(marketId)}
+              onMarketsUpdated={handleBetPlaced}
             />
             <div className="betting-section">
               {selectedMarket !== null ? (

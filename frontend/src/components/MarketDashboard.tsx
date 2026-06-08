@@ -1,7 +1,12 @@
 import { useState, useEffect } from 'react';
-import { ethers } from 'ethers';
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3 } from '../hooks/useWeb3';
 import ChainlinkPrice from './ChainlinkPrice';
+import { getAggregatorDecimals } from '../utils/aggregator';
+import { autoResolveEndedMarkets, getChainTimestamp, getEndedUnresolvedMarketIds } from '../utils/autoResolve';
+import { getMarketQuestion, getMarketTitle, getPoolLabels, getResolvedLabel } from '../utils/marketLabels';
+import { formatAggregatorPrice, formatTokenAmount } from '../utils/priceFormat';
+
+const poolLabels = getPoolLabels();
 
 interface Market {
   id: number;
@@ -17,6 +22,7 @@ interface Market {
 type MarketDashboardProps = {
   selectedMarketId: number | null;
   onSelectMarket: (marketId: number | null) => void;
+  onMarketsUpdated?: () => void;
   refreshKey?: number;
   disabled?: boolean;
 };
@@ -24,14 +30,21 @@ type MarketDashboardProps = {
 export default function MarketDashboard({
   selectedMarketId,
   onSelectMarket,
+  onMarketsUpdated,
   refreshKey,
   disabled = false,
 }: MarketDashboardProps) {
-  const { predictionMarket } = useWeb3();
+  const { predictionMarket, provider, isWalletConnected } = useWeb3();
   const [markets, setMarkets] = useState<Market[]>([]);
+  const [aggregatorDecimals, setAggregatorDecimals] = useState<Record<string, number>>({});
   const [filterText, setFilterText] = useState('');
   const [loading, setLoading] = useState(true);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [chainNow, setChainNow] = useState<number | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [resolving, setResolving] = useState(false);
+  const [resolveStatus, setResolveStatus] = useState('');
+  const [endedCount, setEndedCount] = useState(0);
 
   const fetchMarkets = async (isInitial = false) => {
     if (!predictionMarket) return;
@@ -55,6 +68,23 @@ export default function MarketDashboard({
         });
       }
       setMarkets(fetched);
+
+      if (provider) {
+        const timestamp = await getChainTimestamp(provider);
+        setChainNow(timestamp);
+        if (predictionMarket) {
+          const pending = await getEndedUnresolvedMarketIds(predictionMarket, provider);
+          setEndedCount(pending.length);
+        }
+        const decimalsMap: Record<string, number> = {};
+        const uniqueAggregators = [...new Set(fetched.map((m) => m.aggregator))];
+        await Promise.all(
+          uniqueAggregators.map(async (addr) => {
+            decimalsMap[addr] = await getAggregatorDecimals(provider, addr);
+          })
+        );
+        setAggregatorDecimals(decimalsMap);
+      }
     } catch (error) {
       console.error('Failed to fetch markets:', error);
     } finally {
@@ -69,8 +99,41 @@ export default function MarketDashboard({
     fetchMarkets(true);
   }, [predictionMarket, refreshKey]);
 
-  const formatPrice = (price: bigint) => {
-    return (Number(ethers.formatEther(price))).toFixed(2);
+  const handleRefresh = async () => {
+    if (!predictionMarket) return;
+    setRefreshing(true);
+    setResolveStatus('');
+    try {
+      await fetchMarkets(false);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleResolve = async () => {
+    if (!predictionMarket || !provider || !isWalletConnected) return;
+    setResolving(true);
+    setResolveStatus('');
+    try {
+      const resolved = await autoResolveEndedMarkets(predictionMarket, provider);
+      if (resolved.length === 0) {
+        setResolveStatus('No ended markets to resolve.');
+      } else {
+        setResolveStatus(`Resolved ${resolved.length} market(s).`);
+        await fetchMarkets(false);
+        onMarketsUpdated?.();
+      }
+    } catch (error) {
+      console.error('Resolve failed:', error);
+      setResolveStatus('Resolution failed. Check console for details.');
+    } finally {
+      setResolving(false);
+    }
+  };
+
+  const formatStrike = (price: bigint, aggregator: string) => {
+    const decimals = aggregatorDecimals[aggregator] ?? 8;
+    return formatAggregatorPrice(price, decimals);
   };
 
   const formatTime = (timestamp: bigint) => {
@@ -78,34 +141,58 @@ export default function MarketDashboard({
     return date.toLocaleString();
   };
 
-  const timeRemaining = (endTime: bigint) => {
-    const now = Math.floor(Date.now() / 1000);
-    const diff = Number(endTime) - now;
-    if (diff <= 0) return 'Ended';
+  const timeRemaining = (endTime: bigint, resolved: boolean) => {
+    if (resolved) return 'Resolved';
+    if (chainNow === null) return 'Loading...';
+    const diff = Number(endTime) - chainNow;
+    if (diff <= 0) return 'Awaiting resolution';
     const hours = Math.floor(diff / 3600);
     const mins = Math.floor((diff % 3600) / 60);
     return `${hours}h ${mins}m`;
   };
 
   const describeMarket = (market: Market) => {
-    const state = market.resolved ? (market.yesWins ? 'YES resolved' : 'NO resolved') : timeRemaining(market.endTime);
-    return `#${market.id} | ${state} | strike $${formatPrice(market.strikePrice)}`;
+    const title = getMarketTitle(market.aggregator);
+    const strike = formatStrike(market.strikePrice, market.aggregator);
+    const state = market.resolved
+      ? getResolvedLabel(market.yesWins)
+      : timeRemaining(market.endTime, market.resolved);
+    return `${title} | ${state} | strike $${strike}`;
   };
 
   const visibleMarkets = markets.filter((market) => {
     if (!filterText.trim()) return true;
     const query = filterText.toLowerCase();
-    return (
-      `#${market.id}`.includes(query) ||
-      describeMarket(market).toLowerCase().includes(query)
-    );
+    return describeMarket(market).toLowerCase().includes(query);
   });
 
   if (loading) return <div className="loading">Loading markets...</div>;
 
   return (
     <div className="market-dashboard card">
-      <h2>Active Markets</h2>
+      <div className="market-dashboard-header">
+        <h2>Active Markets</h2>
+        <div className="market-dashboard-actions">
+          <button
+            type="button"
+            className="clear-selection-btn"
+            onClick={handleRefresh}
+            disabled={refreshing || !predictionMarket}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <button
+            type="button"
+            className="resolve-markets-btn"
+            onClick={handleResolve}
+            disabled={resolving || !isWalletConnected || endedCount === 0}
+            title={endedCount === 0 ? 'No ended markets awaiting resolution' : `Resolve ${endedCount} ended market(s)`}
+          >
+            {resolving ? 'Resolving...' : `Resolve ended${endedCount > 0 ? ` (${endedCount})` : ''}`}
+          </button>
+        </div>
+      </div>
+      {resolveStatus && <p className="market-resolve-status">{resolveStatus}</p>}
       {markets.length === 0 ? (
         <p>No markets available</p>
       ) : (
@@ -114,7 +201,7 @@ export default function MarketDashboard({
             <div className="market-picker-header">
               <div>
                 <h3>Choose market</h3>
-                <p>Filter the list below by id, status, or strike price.</p>
+                <p>Pick a market — bet whether the price will be above or below the strike.</p>
               </div>
               <button
                 type="button"
@@ -129,14 +216,14 @@ export default function MarketDashboard({
             <input
               type="text"
               className="market-filter"
-              placeholder="Type a market id, status, or strike price..."
+              placeholder="Search by asset, status, or strike..."
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
               disabled={disabled}
             />
               <p className="selected-market-empty">
-                {selectedMarketId !== null
-                  ? `Selected market #${selectedMarketId} is shown in the betting panel below.`
+                {selectedMarketId !== null && markets[selectedMarketId]
+                  ? `${getMarketTitle(markets[selectedMarketId].aggregator)} selected — place your bet below.`
                   : 'Pick a market to start betting.'}
               </p>
           </div>
@@ -152,35 +239,38 @@ export default function MarketDashboard({
               disabled={disabled}
             >
               <div className="market-header">
-                <span className="market-id">Market #{market.id}</span>
+                <span className="market-id">{getMarketTitle(market.aggregator)}</span>
                 {market.resolved ? (
                   <span className={`result-badge ${market.yesWins ? 'yes' : 'no'}`}>
-                    {market.yesWins ? 'YES Wins' : 'NO Wins'}
+                    {getResolvedLabel(market.yesWins)}
                   </span>
                 ) : (
-                  <span className="time-remaining">{timeRemaining(market.endTime)}</span>
+                  <span className="time-remaining">{timeRemaining(market.endTime, market.resolved)}</span>
                 )}
               </div>
+              <p className="market-card-question">
+                {getMarketQuestion(market.aggregator, formatStrike(market.strikePrice, market.aggregator))}
+              </p>
               <div className="market-details">
                 <div className="detail-row">
-                  <span>Strike Price:</span>
-                  <span>${formatPrice(market.strikePrice)}</span>
+                  <span>Strike price:</span>
+                  <span>${formatStrike(market.strikePrice, market.aggregator)}</span>
                 </div>
                 <div className="detail-row">
-                  <span>Live Price:</span>
+                  <span>Current Chainlink price:</span>
                   <ChainlinkPrice aggregatorAddress={market.aggregator} />
                 </div>
                 <div className="detail-row">
-                  <span>Ends:</span>
+                  <span>Betting closes:</span>
                   <span>{formatTime(market.endTime)}</span>
                 </div>
                 <div className="detail-row">
-                  <span>Yes Pool:</span>
-                  <span>{formatPrice(market.totalYesPool)} BETT</span>
+                  <span>{poolLabels.above}:</span>
+                  <span>{formatTokenAmount(market.totalYesPool)} BETT</span>
                 </div>
                 <div className="detail-row">
-                  <span>No Pool:</span>
-                  <span>{formatPrice(market.totalNoPool)} BETT</span>
+                  <span>{poolLabels.below}:</span>
+                  <span>{formatTokenAmount(market.totalNoPool)} BETT</span>
                 </div>
               </div>
             </button>

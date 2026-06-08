@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3 } from '../hooks/useWeb3';
 import ChainlinkPrice from './ChainlinkPrice';
+import { getAggregatorDecimals } from '../utils/aggregator';
+import { getChainTimestamp } from '../utils/autoResolve';
+import { getMarketQuestion, getMarketTitle, getOutcomeLabel, getResolvedLabel } from '../utils/marketLabels';
+import { formatAggregatorPrice, formatTokenAmount } from '../utils/priceFormat';
 
 interface MarketInfo {
   aggregator: string;
@@ -28,10 +32,12 @@ export default function BettingInterface({
   isLocked = false,
   onProcessingChange,
 }: BettingInterfaceProps) {
-  const { predictionMarket, bettingToken, address, isWalletConnected } = useWeb3();
+  const { predictionMarket, bettingToken, address, isWalletConnected, provider } = useWeb3();
   const [amount, setAmount] = useState('');
   const [isSelected, setIsSelected] = useState<boolean | null>(null);
   const [marketInfo, setMarketInfo] = useState<MarketInfo | null>(null);
+  const [strikeDecimals, setStrikeDecimals] = useState(8);
+  const [chainNow, setChainNow] = useState<number | null>(null);
   const [status, setStatus] = useState('');
   const [statusTone, setStatusTone] = useState<'pending' | 'success' | 'error' | ''>('');
   const [loading, setLoading] = useState(false);
@@ -77,8 +83,9 @@ export default function BettingInterface({
     if (!predictionMarket) return;
     try {
       const market = await predictionMarket.markets(marketId);
+      const aggregator = market.aggregator as string;
       setMarketInfo({
-        aggregator: market.aggregator,
+        aggregator,
         strikePrice: BigInt(market.strikePrice),
         endTime: BigInt(market.endTime),
         resolved: market.resolved,
@@ -86,6 +93,10 @@ export default function BettingInterface({
         totalYesPool: BigInt(market.totalYesPool),
         totalNoPool: BigInt(market.totalNoPool),
       });
+      if (provider) {
+        setStrikeDecimals(await getAggregatorDecimals(provider, aggregator));
+        setChainNow(await getChainTimestamp(provider));
+      }
     } catch (error) {
       console.error('Failed to fetch selected market:', error);
       setMarketInfo(null);
@@ -95,24 +106,27 @@ export default function BettingInterface({
   useEffect(() => {
     checkAllowance();
     fetchMarketInfo();
-  }, [address, bettingToken, predictionMarket, marketId, refreshKey]);
+  }, [address, bettingToken, predictionMarket, marketId, refreshKey, provider]);
 
-  const formatPrice = (price: bigint) => Number(ethers.formatEther(price)).toFixed(2);
+  const formatStrike = (price: bigint) => formatAggregatorPrice(price, strikeDecimals);
 
   const timeRemaining = (endTime: bigint) => {
-    const now = Math.floor(Date.now() / 1000);
-    const diff = Number(endTime) - now;
-    if (diff <= 0) return 'Ended';
+    if (chainNow === null) return 'Loading...';
+    const diff = Number(endTime) - chainNow;
+    if (diff <= 0) return 'Betting closed';
     const hours = Math.floor(diff / 3600);
     const mins = Math.floor((diff % 3600) / 60);
-    return `${hours}h ${mins}m`;
+    return `${hours}h ${mins}m left`;
   };
 
-  const isClosed = !!marketInfo && (marketInfo.resolved || Number(marketInfo.endTime) <= Math.floor(Date.now() / 1000));
+  const isClosed = !!marketInfo && (
+    marketInfo.resolved ||
+    (chainNow !== null && Number(marketInfo.endTime) <= chainNow)
+  );
 
   const handleBet = async () => {
     if (!amount || isSelected === null || !predictionMarket || !bettingToken) {
-      setFeedback('Please fill all fields and select Yes/No', 'error');
+      setFeedback('Enter an amount and pick above or below the strike', 'error');
       return;
     }
 
@@ -143,7 +157,7 @@ export default function BettingInterface({
         betAmount
       );
       await betTx.wait();
-      setFeedback('Bet placed successfully!', 'success');
+      setFeedback(`Bet placed on "${getOutcomeLabel(isSelected)}"`, 'success');
       setAmount('');
       setIsSelected(null);
       checkAllowance();
@@ -157,35 +171,45 @@ export default function BettingInterface({
     }
   };
 
+  const marketTitle = marketInfo ? getMarketTitle(marketInfo.aggregator) : `Market #${marketId}`;
+  const strikeFormatted = marketInfo ? formatStrike(marketInfo.strikePrice) : '';
+
   return (
     <div className="betting-interface card">
       <div className="betting-header">
         <div>
           <p className="betting-kicker">Selected market</p>
-          <h3>Place Bet - Market #{marketId}</h3>
+          <h3>{marketTitle}</h3>
+          {marketInfo && (
+            <p className="market-question">{getMarketQuestion(marketInfo.aggregator, strikeFormatted)}</p>
+          )}
         </div>
         <span className={`betting-market-pill ${marketInfo?.resolved ? 'resolved' : isClosed ? 'closed' : 'open'}`}>
-          {marketInfo?.resolved ? (marketInfo.yesWins ? 'YES won' : 'NO won') : isClosed ? 'Closed' : 'Open'}
+          {marketInfo?.resolved
+            ? getResolvedLabel(marketInfo.yesWins)
+            : isClosed
+              ? 'Awaiting resolution'
+              : 'Open'}
         </span>
       </div>
 
       {marketInfo && (
         <div className="betting-market-summary">
           <div className="betting-summary-row">
-            <span>Strike</span>
-            <span>${formatPrice(marketInfo.strikePrice)}</span>
+            <span>Strike price</span>
+            <span>${strikeFormatted}</span>
           </div>
           <div className="betting-summary-row">
-            <span>Live</span>
+            <span>Current Chainlink price</span>
             <ChainlinkPrice aggregatorAddress={marketInfo.aggregator} />
           </div>
           <div className="betting-summary-row">
-            <span>Ends</span>
+            <span>Betting closes</span>
             <span>{timeRemaining(marketInfo.endTime)}</span>
           </div>
           <div className="betting-summary-row">
             <span>Total pool</span>
-            <span>{formatPrice(marketInfo.totalYesPool + marketInfo.totalNoPool)} BETT</span>
+            <span>{formatTokenAmount(marketInfo.totalYesPool + marketInfo.totalNoPool)} BETT</span>
           </div>
         </div>
       )}
@@ -197,26 +221,29 @@ export default function BettingInterface({
             type="number"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            placeholder={isClosed ? 'Market closed' : 'Enter amount'}
+            placeholder={isClosed ? 'Betting closed' : 'Enter amount'}
             disabled={loading || !isWalletConnected || isClosed || isLocked}
           />
         </div>
         <div className="form-group">
-          <label>Outcome:</label>
+          <label>Your prediction:</label>
+          <p className="outcome-hint">
+            Win if the Chainlink price at resolution is {isSelected === null ? 'above or below' : isSelected ? 'above' : 'below'} ${strikeFormatted || 'the strike'}.
+          </p>
           <div className="outcome-selector">
             <button
               className={`outcome-btn ${isSelected === true ? 'selected' : ''}`}
               onClick={() => setIsSelected(true)}
               disabled={loading || !isWalletConnected || isClosed || isLocked}
             >
-              YES
+              Above strike
             </button>
             <button
               className={`outcome-btn ${isSelected === false ? 'selected' : ''}`}
               onClick={() => setIsSelected(false)}
               disabled={loading || !isWalletConnected || isClosed || isLocked}
             >
-              NO
+              Below strike
             </button>
           </div>
         </div>
@@ -225,7 +252,7 @@ export default function BettingInterface({
           onClick={handleBet}
           disabled={loading || !isWalletConnected || isClosed || isLocked}
         >
-          {isClosed ? 'Market Closed' : loading ? 'Processing...' : 'Place Bet'}
+          {isClosed ? 'Betting closed' : loading ? 'Processing...' : 'Place bet'}
         </button>
         {status && <p className={`status ${statusTone}`}>{status}</p>}
       </div>

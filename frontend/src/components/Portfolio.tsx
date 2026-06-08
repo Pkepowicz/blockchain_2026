@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
-import { useWeb3 } from '../context/Web3Context';
+import { useWeb3 } from '../hooks/useWeb3';
+import { getMarketTitle, getOutcomeLabel, getResolvedLabel } from '../utils/marketLabels';
 
 interface UserBet {
   marketId: number;
+  aggregator: string;
   amount: bigint;
   isYes: boolean;
   claimed: boolean;
@@ -26,6 +28,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
   const [statusTone, setStatusTone] = useState<'pending' | 'success' | 'error' | ''>('');
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const setFeedback = (message: string, tone: 'pending' | 'success' | 'error' | '') => {
     setStatus(message);
@@ -76,6 +79,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
           const isWinner = market.resolved && (market.yesWins === bet.isYes);
           userBets.push({
             marketId: i,
+            aggregator: market.aggregator,
             amount: betAmount,
             isYes: bet.isYes,
             claimed: bet.claimed,
@@ -102,6 +106,15 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
   useEffect(() => {
     fetchBets(true);
   }, [address, predictionMarket, refreshKey]);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchBets(false);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const handleClaim = async (marketId: number) => {
     if (!predictionMarket) return;
@@ -145,7 +158,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
   };
 
   const getBetStatus = (bet: UserBet) => {
-    if (!bet.marketResolved) return { label: 'Pending', tone: 'pending' };
+    if (!bet.marketResolved) return { label: 'Awaiting resolution', tone: 'pending' };
     if (bet.canClaim) return { label: 'Claim available', tone: 'win' };
     if (bet.claimed) return { label: 'Claimed', tone: 'claimed' };
     return { label: 'Lost', tone: 'loss' };
@@ -157,7 +170,17 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
         <div>
           <h2>Portfolio</h2>
         </div>
-        <span className="portfolio-updated">Updated {formatUpdatedAt()}</span>
+        <div className="portfolio-header-actions">
+          <button
+            type="button"
+            className="clear-selection-btn"
+            onClick={handleRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+          <span className="portfolio-updated">Updated {formatUpdatedAt()}</span>
+        </div>
       </div>
       <div className="portfolio-summary">
         <div className="portfolio-stat">
@@ -185,9 +208,9 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
             <div key={bet.marketId} className="bet-item">
               <div className="bet-header">
                 <div className="bet-title-wrap">
-                  <span className="bet-market-id">Market #{bet.marketId}</span>
+                  <span className="bet-market-id">{getMarketTitle(bet.aggregator)}</span>
                   <span className={`outcome-label ${bet.isYes ? 'yes' : 'no'}`}>
-                    {bet.isYes ? 'YES' : 'NO'}
+                    {getOutcomeLabel(bet.isYes)}
                   </span>
                 </div>
                 <span className={`bet-status-pill ${getBetStatus(bet).tone}`}>
@@ -198,7 +221,9 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
                 <span className="bet-amount">Amount: {Number(ethers.formatEther(bet.amount)).toFixed(2)} BETT</span>
                 {bet.marketResolved && (
                   <span className={bet.canClaim || bet.claimed ? 'winner' : 'loser'}>
-                    {bet.canClaim || bet.claimed ? 'Winner' : 'Loser'}
+                    {bet.canClaim || bet.claimed
+                      ? `Won — ${getResolvedLabel(bet.yesWins)}`
+                      : `Lost — ${getResolvedLabel(bet.yesWins)}`}
                   </span>
                 )}
                 {bet.claimed && (
