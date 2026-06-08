@@ -1,4 +1,4 @@
-import { createContext, useCallback, useState } from 'react';
+import { createContext, useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ethers } from 'ethers';
 import BettingTokenABI from '../abi/BettingToken.json';
@@ -27,7 +27,7 @@ export function Web3Provider({ children }: { children: ReactNode }): ReactNode {
   const [bettingToken, setBettingToken] = useState<ethers.Contract | null>(null);
   const [predictionMarket, setPredictionMarket] = useState<ethers.Contract | null>(null);
 
-  const disconnectWallet = useCallback(() => {
+  const resetConnectionState = useCallback(() => {
     setProvider(null);
     setSigner(null);
     setAddress(null);
@@ -35,6 +35,23 @@ export function Web3Provider({ children }: { children: ReactNode }): ReactNode {
     setBettingToken(null);
     setPredictionMarket(null);
   }, []);
+
+  const handleAccountsChanged = useCallback((...args: unknown[]) => {
+    const nextAccounts = args[0] as string[];
+    if (nextAccounts.length === 0) {
+      resetConnectionState();
+    } else {
+      setAddress(nextAccounts[0]);
+    }
+  }, [resetConnectionState]);
+
+  const handleChainChanged = useCallback(() => {
+    window.location.reload();
+  }, []);
+
+  const disconnectWallet = useCallback(() => {
+    resetConnectionState();
+  }, [resetConnectionState]);
 
   const ensureCorrectChain = async () => {
     const hexChainId = `0x${config.chainId.toString(16)}`;
@@ -98,25 +115,24 @@ export function Web3Provider({ children }: { children: ReactNode }): ReactNode {
 
       setBettingToken(tokenContract);
       setPredictionMarket(marketContract);
-
-      window.ethereum.on('accountsChanged', (...args: unknown[]) => {
-        const nextAccounts = args[0] as string[];
-        if (nextAccounts.length === 0) {
-          disconnectWallet();
-        } else {
-          setAddress(nextAccounts[0]);
-        }
-      });
-
-      window.ethereum.on('chainChanged', () => {
-        window.location.reload();
-      });
     } catch (error) {
       console.error('Failed to connect wallet:', error);
       const message = error instanceof Error ? error.message : 'Failed to connect wallet.';
       alert(message);
     }
-  }, [disconnectWallet]);
+  }, []);
+
+  useEffect(() => {
+    if (!window.ethereum) return undefined;
+
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    window.ethereum.on('chainChanged', handleChainChanged);
+
+    return () => {
+      window.ethereum?.removeListener('accountsChanged', handleAccountsChanged);
+      window.ethereum?.removeListener('chainChanged', handleChainChanged);
+    };
+  }, [handleAccountsChanged, handleChainChanged]);
 
   return (
     <Web3Context.Provider
