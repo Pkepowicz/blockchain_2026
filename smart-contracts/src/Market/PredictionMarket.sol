@@ -7,15 +7,18 @@ import "../interfaces/AggregatorV3Interface.sol";
 
 contract PredictionMarket is Ownable {
     IBettingToken public token;
+    uint256 public constant MARKET_CREATION_FEE = 100 ether;
 
     struct Market {
         address aggregator;
+        address creator;
         int256 strikePrice;
         uint256 endTime;
         bool resolved;
         bool yesWins;
         uint256 totalYesPool;
         uint256 totalNoPool;
+        bool creatorClaimed;
     }
 
     struct Bet {
@@ -63,21 +66,25 @@ contract PredictionMarket is Ownable {
         address _aggregator,
         int256 _strikePrice,
         uint256 _duration
-    ) external onlyOwner {
+    ) external {
         require(_aggregator != address(0), "invalid aggregator");
         require(_strikePrice > 0, "invalid strike price");
         require(_duration > 0, "invalid duration");
+
+        require(token.transferFrom(msg.sender, address(this), MARKET_CREATION_FEE), "fee transfer failed");
 
         uint256 marketId = nextMarketId;
 
         markets[marketId] = Market({
             aggregator: _aggregator,
+            creator: msg.sender,
             strikePrice: _strikePrice,
             endTime: block.timestamp + _duration,
             resolved: false,
             yesWins: false,
             totalYesPool: 0,
-            totalNoPool: 0
+            totalNoPool: 0,
+            creatorClaimed: false
         });
 
         emit MarketCreated(marketId, _aggregator, _strikePrice, markets[marketId].endTime);
@@ -178,11 +185,25 @@ contract PredictionMarket is Ownable {
     function claimWinnings(uint256 _marketId) external autoResolve(_marketId) {
         require(markets[_marketId].resolved, "not resolved");
 
+        Market storage market = markets[_marketId];
+        bool hasWinners = market.yesWins ? market.totalYesPool > 0 : market.totalNoPool > 0;
+
+        if (!hasWinners) {
+            require(msg.sender == market.creator, "not creator");
+            require(!market.creatorClaimed, "already claimed");
+
+            uint256 creatorPayout = market.totalYesPool + market.totalNoPool;
+            market.creatorClaimed = true;
+
+            token.transfer(msg.sender, creatorPayout);
+
+            emit WinningsClaimed(_marketId, msg.sender, creatorPayout);
+            return;
+        }
+
         Bet storage bet = userBets[_marketId][msg.sender];
         require(bet.amount > 0, "no bet placed");
         require(!bet.claimed, "already claimed");
-
-        Market storage market = markets[_marketId];
         require(market.yesWins == bet.isYes, "no winner");
 
         bet.claimed = true;

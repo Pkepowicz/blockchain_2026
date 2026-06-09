@@ -12,12 +12,14 @@ contract DeploySepolia is Script {
         vm.startPrank(deployer);
 
         BettingToken token = new BettingToken();
+        token.mint();
 
         address chainlinkAggregator = vm.envAddress("CHAINLINK_AGGREGATOR");
         int256 strikePrice = int256(vm.envUint("STRIKE_PRICE"));
         uint256 duration = vm.envUint("MARKET_DURATION");
 
         PredictionMarket market = new PredictionMarket(address(token));
+        token.approve(address(market), type(uint256).max);
         market.createMarket(chainlinkAggregator, strikePrice, duration);
 
         vm.stopPrank();

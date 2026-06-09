@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useWeb3 } from '../hooks/useWeb3';
 import { AggregatorV3ABI, getAggregatorDecimals } from '../utils/aggregator';
 import { formatAggregatorPrice } from '../utils/priceFormat';
@@ -12,11 +12,17 @@ export default function ChainlinkPrice({ aggregatorAddress }: ChainlinkPriceProp
   const { provider } = useWeb3();
   const [price, setPrice] = useState<string>('--');
   const [loading, setLoading] = useState(true);
+  const isFetchingRef = useRef(false);
+
+  const aggregator = useMemo(() => {
+    if (!provider) return null;
+    return new ethers.Contract(aggregatorAddress, AggregatorV3ABI, provider);
+  }, [provider, aggregatorAddress]);
 
   const fetchPrice = async () => {
-    if (!provider) return;
+    if (!provider || !aggregator || isFetchingRef.current) return;
+    isFetchingRef.current = true;
     try {
-      const aggregator = new ethers.Contract(aggregatorAddress, AggregatorV3ABI, provider);
       const [round, decimals] = await Promise.all([
         aggregator.latestRoundData(),
         getAggregatorDecimals(provider, aggregatorAddress),
@@ -26,6 +32,7 @@ export default function ChainlinkPrice({ aggregatorAddress }: ChainlinkPriceProp
       setPrice('unavailable');
     } finally {
       setLoading(false);
+      isFetchingRef.current = false;
     }
   };
 

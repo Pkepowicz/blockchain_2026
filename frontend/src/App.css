@@ -212,6 +212,127 @@ body {
   color: var(--text-secondary);
 }
 
+.market-creator {
+  margin-bottom: 18px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 183, 77, 0.2);
+  background: linear-gradient(180deg, rgba(255, 183, 77, 0.1), rgba(255, 255, 255, 0.02));
+}
+
+.market-creator-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+
+.market-creator-header h3 {
+  font-size: 0.98rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.market-creator-header p {
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.creator-fee-badge {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 183, 77, 0.35);
+  color: #ffd48a;
+  background: rgba(255, 183, 77, 0.12);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.market-creator-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(160px, 0.8fr) minmax(160px, 0.8fr);
+  gap: 12px;
+}
+
+.market-creator-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.market-creator-field-wide {
+  min-width: 0;
+}
+
+.market-creator-field label {
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.market-creator-input {
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+.market-creator-input::placeholder {
+  color: var(--text-muted);
+}
+
+.market-creator-note {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 0.84rem;
+}
+
+.create-market-btn {
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 183, 77, 0.45);
+  background: rgba(255, 183, 77, 0.16);
+  color: #ffd48a;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.create-market-btn:hover:not(:disabled) {
+  background: rgba(255, 183, 77, 0.24);
+  border-color: #ffcb73;
+  color: #ffe2af;
+}
+
+.create-market-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.create-market-status {
+  margin: 10px 0 0;
+  font-size: 0.88rem;
+}
+
+.create-market-status.pending {
+  color: var(--text-secondary);
+}
+
+.create-market-status.success {
+  color: var(--accent-green);
+}
+
+.create-market-status.error {
+  color: var(--accent-red);
+}
+
 .market-dashboard h2 {
   display: flex;
   align-items: center;
@@ -1228,6 +1349,16 @@ body {
 
 .bottom-section .market-dashboard h2 {
   margin-bottom: 18px;
+}
+
+@media (max-width: 860px) {
+  .market-creator-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .market-creator-header {
+    flex-direction: column;
+  }
 }
 
 /* ── Approval Step Indicator ── */

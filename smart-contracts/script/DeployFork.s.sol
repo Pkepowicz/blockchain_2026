@@ -18,13 +18,14 @@ contract DeployFork is Script {
         BettingToken token = new BettingToken();
         PredictionMarket market = new PredictionMarket(address(token));
 
+        token.mint();
+        token.approve(address(market), type(uint256).max);
+
         int256 btcStrike = _strikeBelow(BTC_USD, 95);
         int256 ethStrike = _strikeAbove(ETH_USD, 105);
 
         market.createMarket(BTC_USD, btcStrike, 5 minutes);
         market.createMarket(ETH_USD, ethStrike, 10 minutes);
-
-        token.mint();
 
         vm.stopBroadcast();
 

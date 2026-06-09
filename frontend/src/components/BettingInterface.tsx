@@ -157,7 +157,7 @@ export default function BettingInterface({
         betAmount
       );
       await betTx.wait();
-      setFeedback(`Bet placed on "${getOutcomeLabel(isSelected)}"`, 'success');
+      setFeedback(`Bet placed on "${getOutcomeLabel(isSelected, strikeFormatted)}"`, 'success');
       setAmount('');
       setIsSelected(null);
       checkAllowance();
@@ -173,6 +173,8 @@ export default function BettingInterface({
 
   const marketTitle = marketInfo ? getMarketTitle(marketInfo.aggregator) : `Market #${marketId}`;
   const strikeFormatted = marketInfo ? formatStrike(marketInfo.strikePrice) : '';
+  const yesLabel = getOutcomeLabel(true);
+  const noLabel = getOutcomeLabel(false);
 
   return (
     <div className="betting-interface card">
@@ -236,14 +238,14 @@ export default function BettingInterface({
               onClick={() => setIsSelected(true)}
               disabled={loading || !isWalletConnected || isClosed || isLocked}
             >
-              Above strike
+              {yesLabel}
             </button>
             <button
               className={`outcome-btn ${isSelected === false ? 'selected' : ''}`}
               onClick={() => setIsSelected(false)}
               disabled={loading || !isWalletConnected || isClosed || isLocked}
             >
-              Below strike
+              {noLabel}
             </button>
           </div>
         </div>

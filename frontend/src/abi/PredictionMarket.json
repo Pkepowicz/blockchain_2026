@@ -63,6 +63,11 @@
         "internalType": "address"
       },
       {
+        "name": "creator",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "strikePrice",
         "type": "int256",
         "internalType": "int256"
@@ -91,6 +96,11 @@
         "name": "totalNoPool",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "creatorClaimed",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"

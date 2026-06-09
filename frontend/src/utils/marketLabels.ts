@@ -14,12 +14,27 @@ export function getMarketTitle(aggregatorAddress: string): string {
   return `${pair} price`;
 }
 
+export function getBetMarketTitle(aggregatorAddress: string, isYes: boolean, strikeFormatted?: string): string {
+  const marketTitle = getMarketTitle(aggregatorAddress);
+  if (strikeFormatted) {
+    return isYes
+      ? `${marketTitle} - above $${strikeFormatted}`
+      : `${marketTitle} - below $${strikeFormatted}`;
+  }
+
+  return isYes ? `${marketTitle} - above` : `${marketTitle} - below`;
+}
+
 export function getMarketQuestion(aggregatorAddress: string, strikeFormatted: string): string {
   const { pair } = getFeedInfo(aggregatorAddress);
   return `Will ${pair} be above $${strikeFormatted} when the market resolves?`;
 }
 
-export function getOutcomeLabel(isYes: boolean): string {
+export function getOutcomeLabel(isYes: boolean, strikeFormatted?: string): string {
+  if (strikeFormatted) {
+    return isYes ? `Above strike (above $${strikeFormatted})` : `Below strike (below $${strikeFormatted})`;
+  }
+
   return isYes ? 'Above strike' : 'Below strike';
 }
 

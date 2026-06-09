@@ -1,12 +1,24 @@
 import { useState, useEffect } from 'react';
+import { ethers } from 'ethers';
 import { useWeb3 } from '../hooks/useWeb3';
 import ChainlinkPrice from './ChainlinkPrice';
 import { getAggregatorDecimals } from '../utils/aggregator';
 import { autoResolveEndedMarkets, getChainTimestamp, getEndedUnresolvedMarketIds } from '../utils/autoResolve';
-import { getMarketQuestion, getMarketTitle, getPoolLabels, getResolvedLabel } from '../utils/marketLabels';
+import { getBetMarketTitle, getMarketQuestion, getMarketTitle, getPoolLabels, getResolvedLabel } from '../utils/marketLabels';
 import { formatAggregatorPrice, formatTokenAmount } from '../utils/priceFormat';
 
 const poolLabels = getPoolLabels();
+const MARKET_CREATION_FEE = ethers.parseEther('100');
+const AGGREGATOR_PRESETS = {
+  btc: {
+    label: 'BTC/USD',
+    address: '0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43',
+  },
+  eth: {
+    label: 'ETH/USD',
+    address: '0x694AA1769357215DE4FAC081bf1f309aDC325306',
+  },
+} as const;
 
 interface Market {
   id: number;
@@ -34,7 +46,7 @@ export default function MarketDashboard({
   refreshKey,
   disabled = false,
 }: MarketDashboardProps) {
-  const { predictionMarket, provider, isWalletConnected } = useWeb3();
+  const { predictionMarket, bettingToken, address, provider, isWalletConnected } = useWeb3();
   const [markets, setMarkets] = useState<Market[]>([]);
   const [aggregatorDecimals, setAggregatorDecimals] = useState<Record<string, number>>({});
   const [filterText, setFilterText] = useState('');
@@ -45,6 +57,18 @@ export default function MarketDashboard({
   const [resolving, setResolving] = useState(false);
   const [resolveStatus, setResolveStatus] = useState('');
   const [endedCount, setEndedCount] = useState(0);
+  const [creatorAggregatorChoice, setCreatorAggregatorChoice] = useState<keyof typeof AGGREGATOR_PRESETS | 'custom'>('btc');
+  const [creatorCustomAggregator, setCreatorCustomAggregator] = useState('');
+  const [creatorStrikePrice, setCreatorStrikePrice] = useState('');
+  const [creatorDurationMinutes, setCreatorDurationMinutes] = useState('10');
+  const [creating, setCreating] = useState(false);
+  const [createStatus, setCreateStatus] = useState('');
+  const [createStatusTone, setCreateStatusTone] = useState<'pending' | 'success' | 'error' | ''>('');
+
+  const setCreateFeedback = (message: string, tone: 'pending' | 'success' | 'error' | '') => {
+    setCreateStatus(message);
+    setCreateStatusTone(tone);
+  };
 
   const fetchMarkets = async (isInitial = false) => {
     if (!predictionMarket) return;
@@ -131,6 +155,71 @@ export default function MarketDashboard({
     }
   };
 
+  const handleCreateMarket = async () => {
+    if (!predictionMarket || !bettingToken || !provider || !address) {
+      setCreateFeedback('Connect a wallet to create a market.', 'error');
+      return;
+    }
+
+    const aggregatorInput = creatorAggregatorChoice === 'custom'
+      ? creatorCustomAggregator.trim()
+      : AGGREGATOR_PRESETS[creatorAggregatorChoice].address;
+    const strikeInput = creatorStrikePrice.trim();
+    const durationInput = creatorDurationMinutes.trim();
+
+    if (!aggregatorInput || !strikeInput || !durationInput) {
+      setCreateFeedback('Fill in aggregator, strike price, and duration.', 'error');
+      return;
+    }
+
+    setCreating(true);
+    setCreateFeedback('Preparing market creation...', 'pending');
+
+    try {
+      if (!ethers.isAddress(aggregatorInput)) {
+        setCreateFeedback('Invalid aggregator address. Choose BTC/USD, ETH/USD, or paste a valid 0x address.', 'error');
+        return;
+      }
+
+      const aggregatorAddress = ethers.getAddress(aggregatorInput);
+      const decimals = await getAggregatorDecimals(provider, aggregatorAddress);
+      const strikePrice = ethers.parseUnits(strikeInput, decimals);
+      const durationMinutes = Number(durationInput);
+
+      if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+        setCreateFeedback('Duration must be a positive number.', 'error');
+        return;
+      }
+
+      const durationSeconds = Math.floor(durationMinutes * 60);
+      const allowance = await bettingToken.allowance(address, predictionMarket.target);
+
+      if (allowance < MARKET_CREATION_FEE) {
+        setCreateFeedback('Approving creation fee...', 'pending');
+        const approveTx = await bettingToken.approve(predictionMarket.target, MARKET_CREATION_FEE);
+        await approveTx.wait();
+      }
+
+      setCreateFeedback('Creating market...', 'pending');
+      const createTx = await predictionMarket.createMarket(aggregatorAddress, strikePrice, durationSeconds);
+      await createTx.wait();
+
+      setCreateFeedback('Market created successfully.', 'success');
+      setCreatorAggregatorChoice('btc');
+      setCreatorCustomAggregator('');
+      setCreatorStrikePrice('');
+      setCreatorDurationMinutes('10');
+      await fetchMarkets(false);
+      onMarketsUpdated?.();
+    } catch (error) {
+      console.error('Create market failed:', error);
+      const message = error instanceof Error ? error.message : 'Failed to create market.';
+      setCreateFeedback(message, 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const formatStrike = (price: bigint, aggregator: string) => {
     const decimals = aggregatorDecimals[aggregator] ?? 8;
     return formatAggregatorPrice(price, decimals);
@@ -152,7 +241,7 @@ export default function MarketDashboard({
   };
 
   const describeMarket = (market: Market) => {
-    const title = getMarketTitle(market.aggregator);
+    const title = getBetMarketTitle(market.aggregator, market.yesWins, formatStrike(market.strikePrice, market.aggregator));
     const strike = formatStrike(market.strikePrice, market.aggregator);
     const state = market.resolved
       ? getResolvedLabel(market.yesWins)
@@ -193,6 +282,77 @@ export default function MarketDashboard({
         </div>
       </div>
       {resolveStatus && <p className="market-resolve-status">{resolveStatus}</p>}
+      <div className="market-creator">
+        <div className="market-creator-header">
+          <div>
+            <h3>Create market</h3>
+            <p>Open to anyone. Pay a 100 BETT creation fee and seed a new prediction market.</p>
+          </div>
+          <span className="creator-fee-badge">Fee: {formatTokenAmount(MARKET_CREATION_FEE)} BETT</span>
+        </div>
+        <div className="market-creator-grid">
+          <div className="market-creator-field market-creator-field-wide">
+            <label htmlFor="creator-aggregator">Aggregator address</label>
+            <select
+              id="creator-aggregator"
+              className="market-creator-input"
+              value={creatorAggregatorChoice}
+              onChange={(e) => setCreatorAggregatorChoice(e.target.value as keyof typeof AGGREGATOR_PRESETS | 'custom')}
+              disabled={creating || !isWalletConnected}
+            >
+              <option value="btc">BTC/USD - 0x1b44F3514812d835EB1BDB0acB33d3fA3351Ee43</option>
+              <option value="eth">ETH/USD - 0x694AA1769357215DE4FAC081bf1f309aDC325306</option>
+              <option value="custom">Custom address</option>
+            </select>
+            {creatorAggregatorChoice === 'custom' && (
+              <input
+                type="text"
+                className="market-creator-input"
+                placeholder="Paste your own aggregator address"
+                value={creatorCustomAggregator}
+                onChange={(e) => setCreatorCustomAggregator(e.target.value)}
+                disabled={creating || !isWalletConnected}
+              />
+            )}
+          </div>
+          <div className="market-creator-field">
+            <label htmlFor="creator-strike">Strike price</label>
+            <input
+              id="creator-strike"
+              type="number"
+              className="market-creator-input"
+              placeholder="e.g. 50000"
+              value={creatorStrikePrice}
+              onChange={(e) => setCreatorStrikePrice(e.target.value)}
+              disabled={creating || !isWalletConnected}
+            />
+          </div>
+          <div className="market-creator-field">
+            <label htmlFor="creator-duration">Duration (minutes)</label>
+            <input
+              id="creator-duration"
+              type="number"
+              className="market-creator-input"
+              placeholder="10"
+              value={creatorDurationMinutes}
+              onChange={(e) => setCreatorDurationMinutes(e.target.value)}
+              disabled={creating || !isWalletConnected}
+            />
+          </div>
+        </div>
+        <p className="market-creator-note">
+          BTC/USD and ETH/USD are prefilled. If you choose custom, the address must be a valid Chainlink aggregator.
+        </p>
+        <button
+          type="button"
+          className="create-market-btn"
+          onClick={handleCreateMarket}
+          disabled={creating || !isWalletConnected || !predictionMarket}
+        >
+          {creating ? 'Creating...' : 'Create market'}
+        </button>
+        {createStatus && <p className={`create-market-status ${createStatusTone}`}>{createStatus}</p>}
+      </div>
       {markets.length === 0 ? (
         <p>No markets available</p>
       ) : (
@@ -239,7 +399,7 @@ export default function MarketDashboard({
               disabled={disabled}
             >
               <div className="market-header">
-                <span className="market-id">{getMarketTitle(market.aggregator)}</span>
+                <span className="market-id">{getBetMarketTitle(market.aggregator, market.yesWins, formatStrike(market.strikePrice, market.aggregator))}</span>
                 {market.resolved ? (
                   <span className={`result-badge ${market.yesWins ? 'yes' : 'no'}`}>
                     {getResolvedLabel(market.yesWins)}

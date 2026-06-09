@@ -16,9 +16,10 @@ contract DeployAnvilNoIR is Script {
         MockV3Aggregator aggregator = new MockV3Aggregator(18, 50_000e18);
         PredictionMarket market = new PredictionMarket(address(token));
 
-        market.createMarket(address(aggregator), 45_000e18, 5 minutes);
-
         token.mint();
+        token.approve(address(market), type(uint256).max);
+
+        market.createMarket(address(aggregator), 45_000e18, 5 minutes);
 
         vm.stopBroadcast();
     }

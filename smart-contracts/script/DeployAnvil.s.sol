@@ -16,13 +16,13 @@ contract DeployAnvil is Script {
         MockV3Aggregator aggregator = new MockV3Aggregator(18, 50_000e18);
         PredictionMarket market = new PredictionMarket(address(token));
 
+        token.mint();
+        token.approve(address(market), type(uint256).max);
+
         // Seed a few markets so the UI is ready immediately after deploy.
         market.createMarket(address(aggregator), 45_000e18, 5 minutes);
         market.createMarket(address(aggregator), 52_000e18, 10 minutes);
         market.createMarket(address(aggregator), 50_500e18, 15 minutes);
-
-        // Mint tokens to deployer
-        token.mint();
 
         vm.stopBroadcast();
 

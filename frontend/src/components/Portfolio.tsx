@@ -2,16 +2,27 @@ import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { useWeb3 } from '../hooks/useWeb3';
 import { getMarketTitle, getOutcomeLabel, getResolvedLabel } from '../utils/marketLabels';
+import { getAggregatorDecimals } from '../utils/aggregator';
+import { formatAggregatorPrice } from '../utils/priceFormat';
 
 interface UserBet {
   marketId: number;
   aggregator: string;
   amount: bigint;
   isYes: boolean;
+  strikeLabel: string;
   claimed: boolean;
   marketResolved: boolean;
   yesWins: boolean;
   canClaim: boolean;
+}
+
+interface CreatorPayoutMarket {
+  marketId: number;
+  creator: string;
+  payout: bigint;
+  aggregator: string;
+  strikeLabel: string;
 }
 
 type PortfolioProps = {
@@ -20,7 +31,7 @@ type PortfolioProps = {
 };
 
 export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioProps) {
-  const { predictionMarket, address, isWalletConnected } = useWeb3();
+  const { predictionMarket, address, provider, isWalletConnected } = useWeb3();
   const [bets, setBets] = useState<UserBet[]>([]);
   const [loading, setLoading] = useState(true);
   const [claimingMarketId, setClaimingMarketId] = useState<number | null>(null);
@@ -29,6 +40,8 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [claimingCreatorMarketId, setClaimingCreatorMarketId] = useState<number | null>(null);
+  const [creatorPayoutMarkets, setCreatorPayoutMarkets] = useState<CreatorPayoutMarket[]>([]);
 
   const setFeedback = (message: string, tone: 'pending' | 'success' | 'error' | '') => {
     setStatus(message);
@@ -69,10 +82,30 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
     try {
       const count = await predictionMarket.nextMarketId();
       const userBets: UserBet[] = [];
+      const creatorMarkets: CreatorPayoutMarket[] = [];
 
       for (let i = 0; i < Number(count); i++) {
         const market = await predictionMarket.markets(i);
         const bet = await predictionMarket.userBets(i, address);
+
+        const strikeDecimals = provider ? await getAggregatorDecimals(provider, market.aggregator) : 8;
+        const strikeLabel = formatAggregatorPrice(BigInt(market.strikePrice), strikeDecimals);
+        const hasWinners = market.resolved && (market.yesWins ? market.totalYesPool > 0 : market.totalNoPool > 0);
+        const isCreatorPayoutEligible =
+          market.resolved &&
+          !hasWinners &&
+          market.creator.toLowerCase() === address.toLowerCase() &&
+          !market.creatorClaimed;
+
+        if (isCreatorPayoutEligible) {
+          creatorMarkets.push({
+            marketId: i,
+            creator: market.creator,
+            payout: BigInt(market.totalYesPool) + BigInt(market.totalNoPool),
+            aggregator: market.aggregator,
+            strikeLabel,
+          });
+        }
 
         const betAmount = BigInt(bet.amount);
         if (betAmount > BigInt(0)) {
@@ -82,6 +115,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
             aggregator: market.aggregator,
             amount: betAmount,
             isYes: bet.isYes,
+            strikeLabel,
             claimed: bet.claimed,
             marketResolved: market.resolved,
             yesWins: market.yesWins,
@@ -90,6 +124,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
         }
       }
       setBets(userBets);
+      setCreatorPayoutMarkets(creatorMarkets);
       setLastUpdated(new Date());
       if (isInitial && !hasLoaded) {
         setHasLoaded(true);
@@ -105,7 +140,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
 
   useEffect(() => {
     fetchBets(true);
-  }, [address, predictionMarket, refreshKey]);
+  }, [address, predictionMarket, provider, refreshKey]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -123,13 +158,31 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
     try {
       const tx = await predictionMarket.claimWinnings(marketId);
       await tx.wait();
-      fetchBets();
+      await fetchBets();
       onPortfolioChanged?.();
     } catch (error) {
       setFeedback(extractErrorMessage(error), 'error');
       console.error(error);
     } finally {
       setClaimingMarketId(null);
+    }
+  };
+
+  const handleCreatorClaim = async (marketId: number) => {
+    if (!predictionMarket) return;
+    setClaimingCreatorMarketId(marketId);
+    setFeedback('', '');
+    try {
+      const tx = await predictionMarket.claimWinnings(marketId);
+      await tx.wait();
+      setCreatorPayoutMarkets((currentMarkets) => currentMarkets.filter((market) => market.marketId !== marketId));
+      await fetchBets();
+      onPortfolioChanged?.();
+    } catch (error) {
+      setFeedback(extractErrorMessage(error), 'error');
+      console.error(error);
+    } finally {
+      setClaimingCreatorMarketId(null);
     }
   };
 
@@ -182,6 +235,35 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
           <span className="portfolio-updated">Updated {formatUpdatedAt()}</span>
         </div>
       </div>
+      {creatorPayoutMarkets.length > 0 && (
+        <div className="creator-payouts">
+          <h3>Creator payout</h3>
+          <div className="bet-list">
+            {creatorPayoutMarkets.map((market) => (
+              <div key={market.marketId} className="bet-item">
+                <div className="bet-header">
+                  <div className="bet-title-wrap">
+                    <span className="bet-market-id">{getMarketTitle(market.aggregator)}</span>
+                    <span className="outcome-label no">Below strike</span>
+                  </div>
+                  <span className="bet-status-pill win">Creator payout available</span>
+                </div>
+                <div className="bet-details">
+                  <span className="bet-amount">Pool: {Number(ethers.formatEther(market.payout)).toFixed(2)} BETT</span>
+                  <span className="winner">No winners on {market.strikeLabel}</span>
+                </div>
+                <button
+                  className="claim-btn"
+                  onClick={() => handleCreatorClaim(market.marketId)}
+                  disabled={claimingCreatorMarketId !== null}
+                >
+                  {claimingCreatorMarketId === market.marketId ? 'Claiming...' : 'Claim Creator Pool'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="portfolio-summary">
         <div className="portfolio-stat">
           <span className="portfolio-stat-label">Total staked</span>
@@ -210,7 +292,7 @@ export default function Portfolio({ onPortfolioChanged, refreshKey }: PortfolioP
                 <div className="bet-title-wrap">
                   <span className="bet-market-id">{getMarketTitle(bet.aggregator)}</span>
                   <span className={`outcome-label ${bet.isYes ? 'yes' : 'no'}`}>
-                    {getOutcomeLabel(bet.isYes)}
+                    {getOutcomeLabel(bet.isYes, bet.strikeLabel)}
                   </span>
                 </div>
                 <span className={`bet-status-pill ${getBetStatus(bet).tone}`}>
