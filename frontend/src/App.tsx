@@ -19,7 +19,7 @@ function AppContent() {
   useEffect(() => {
     const interval = setInterval(() => {
       setRefreshKey((k) => k + 1);
-    }, 15000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, []);

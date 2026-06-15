@@ -38,7 +38,7 @@ export default function ChainlinkPrice({ aggregatorAddress }: ChainlinkPriceProp
 
   useEffect(() => {
     fetchPrice();
-    const interval = setInterval(fetchPrice, 15000);
+    const interval = setInterval(fetchPrice, 5000);
     return () => clearInterval(interval);
   }, [provider, aggregatorAddress]);
 
