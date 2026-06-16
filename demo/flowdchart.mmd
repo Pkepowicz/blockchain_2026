@@ -1,0 +1,41 @@
+sequenceDiagram
+    actor User as User / Creator
+    participant MM as MetaMask / Script
+    participant Anvil as Anvil (31337)
+    participant BETT as BettingToken
+    participant PM as PredictionMarket
+    participant CL as Chainlink Aggregator
+
+    Note over User,CL: Phase 0 — Create Market (100 BETT fee)
+    User->>MM: approve(PM, 100)
+    MM->>BETT: allowance set
+    User->>MM: createMarket(aggregator, strike, duration)
+    MM->>PM: createMarket()
+    PM->>BETT: transferFrom(user, PM, 100)
+    PM->>PM: markets[newId] stored
+
+    Note over User,CL: Phase 1 — Acquire tokens
+    User->>MM: mint()
+    MM->>Anvil: tx
+    Anvil->>BETT: _mint(user, 1000 BETT)
+
+    Note over User,CL: Phase 2 — Place bet
+    User->>MM: approve(PM, amount)
+    MM->>BETT: allowance set
+    User->>MM: placeBet(marketId, isYes, amount)
+    MM->>PM: placeBet()
+    PM->>BETT: transferFrom(user, PM, amount)
+    PM->>PM: update total pools & user bets
+
+    Note over User,CL: Phase 3 — Resolve (after endTime)
+    Note over User,PM: Triggered by User (UI) OR watch-resolve.sh
+    User->>MM: resolveMarket(marketId)
+    MM->>PM: resolveMarket()
+    PM->>CL: latestRoundData()
+    CL-->>PM: price, roundId, timestamps
+    PM->>PM: yesWins = price > strikePrice
+
+    Note over User,CL: Phase 4 — Claim
+    User->>MM: claimWinnings(marketId)
+    MM->>PM: claimWinnings()
+    PM->>BETT: transfer(user, payout)
